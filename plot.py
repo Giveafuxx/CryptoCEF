@@ -1,6 +1,7 @@
 import pandas as pd
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
+import matplotlib.pyplot as plt
 from analyzer import PerformanceAnalyzer
 from parameter import StrategyPerformance
 import copy
@@ -137,6 +138,44 @@ class FactorStrategyPlotter:
             self.fig.write_html(f"{filename}.html")
         else:
             self.fig.write_image(f"{filename}.{format}", scale=3)
+
+
+class MetricPlotter:
+    def __init__(self, **kwargs):
+        self.df = kwargs.get("df")
+
+    def plot(self):
+        # Create visualization
+        plt.figure(figsize=(12, 6))
+
+        # Create twin axes for different scales
+        ax1 = plt.gca()
+        ax2 = ax1.twinx()
+
+        # Plot original prices on left y-axis
+        line1 = ax1.plot(self.df['t'], self.df['price'],
+                         label='Original', color='blue', alpha=0.7)
+        ax1.set_xlabel('t')
+        ax1.set_ylabel('Price', color='blue')
+        ax1.tick_params(axis='y', labelcolor='blue')
+
+        # Plot normalized prices on right y-axis
+        line2 = ax2.plot(self.df['t'], self.df['value'],
+                         label='Preprocessed metric', color='gray', alpha=0.7)
+        ax2.set_ylabel('Preprocessed metric', color='gray')
+        ax2.tick_params(axis='y', labelcolor='gray')
+
+        # Combine legends
+        lines = line1 + line2
+        labels = [l.get_label() for l in lines]
+        ax1.legend(lines, labels, loc='upper left')
+
+        plt.title('Preprocessed metric vs Price')
+        plt.xticks(rotation=45)
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.show()
+
 
 
 if __name__ == "__main__":
