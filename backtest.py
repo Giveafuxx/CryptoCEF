@@ -14,8 +14,8 @@ def cal_pnl(temp_df: pd.DataFrame):
     temp_df["cost"] = temp_df["trade"] * 0.06 / 100
 
     # Calculate number of long and short trades
-    temp_df["long_trade"] = (temp_df["pos"] > temp_df["pos_t-1"]).astype(int)
-    temp_df["short_trade"] = (temp_df["pos"] < temp_df["pos_t-1"]).astype(int)
+    temp_df["long_trade"] = ((temp_df["pos"] > temp_df["pos_t-1"]) & (temp_df["pos"] != 0)).astype(int)
+    temp_df["short_trade"] = ((temp_df["pos"] < temp_df["pos_t-1"]) & (temp_df["pos"] != 0)).astype(int)
 
     temp_df["pnl"] = temp_df["pos_t-1"] * temp_df["chg"] - temp_df["cost"]
 
@@ -60,7 +60,7 @@ def backtesting(
             sortino=PerformanceAnalyzer.Calculate.sortino_ratio(df, resolution, window),
             calmar=PerformanceAnalyzer.Calculate.calmar_ratio(df, window, resolution),
             mdd=PerformanceAnalyzer.Calculate.mdd(df),
-            trade=df["trade"].sum(),
+            trade=df["long_trade"].sum() + df["short_trade"].sum(),
             long_trades=df["long_trade"].sum(),
             short_trades=df["short_trade"].sum(),
             annual_return=PerformanceAnalyzer.Calculate.annual_return(df, window, resolution)
