@@ -29,22 +29,22 @@ class Model:
             "ma_diff": self._cal_pos_change,
             "roc": self._cal_pos_pctChange,
             "rsi": self._cal_pos_zeroHundred,
-            "min_max": self._cal_pos_normalized,
-            "percentile": self._cal_pos_zeroHundred,
+            "min_max": self._cal_pos_zeroOne,
+            "percentile": self._cal_pos_percentile,
             "raw": self._cal_pos_zScore,
         }
 
     def get_model_list(self):
         return list(self.standardization_model.keys())
 
-    def standardize_metric(self, df: pd.DataFrame, window: int, model: str) -> pd.DataFrame:
+    def standardize_metric(self, df: pd.DataFrame, window: int, model: str, threshold: float) -> pd.DataFrame:
         model = model.lower()
 
         if model not in self.standardization_model:
             raise ValueError(f"Model not found: {model}, exiting...")
 
         try:
-            return self.standardization_model[model](df, window)
+            return self.standardization_model[model](df, window, threshold)
         except Exception as e:
             logger.error(f"Error in cal_pos: {e}")
             raise
@@ -63,7 +63,7 @@ class Model:
             raise
 
     @staticmethod
-    def _standardize_bBand(df: pd.DataFrame, window: int):
+    def _standardize_bBand(df: pd.DataFrame, window: int, threshold: float):
         df['ma'] = df['value'].rolling(window).mean()
         df['sd'] = df['value'].rolling(window).std()
         # zscore is n standard d away from mean
@@ -72,13 +72,13 @@ class Model:
         return df
 
     @staticmethod
-    def _standardize_raw(df: pd.DataFrame, window: int):
+    def _standardize_raw(df: pd.DataFrame, window: int, threshold: float):
         df['value_de'] = df['value']
 
         return df
 
     @staticmethod
-    def _standardize_logBand(df: pd.DataFrame, window: int):
+    def _standardize_logBand(df: pd.DataFrame, window: int, threshold: float):
         df['log'] = np.log(df['value'])
         df['ma'] = df['log'].rolling(window).mean()
         df['sd'] = df['log'].rolling(window).std()
@@ -87,7 +87,7 @@ class Model:
         return df
 
     @staticmethod
-    def _standardize_robust(df: pd.DataFrame, window: int):
+    def _standardize_robust(df: pd.DataFrame, window: int, threshold: float):
         df["median"] = df["value"].rolling(window).median()
         df["IQR"] = df["value"].rolling(window).quantile(0.75) - df["value"].rolling(window).quantile(0.25)
         df["value_de"] = (df["value"] - df["median"]) / df["IQR"]
@@ -95,7 +95,7 @@ class Model:
         return df
 
     @staticmethod
-    def _standardize_tanh(df: pd.DataFrame, window: int):
+    def _standardize_tanh(df: pd.DataFrame, window: int, threshold: float):
         df['ma'] = df['value'].rolling(window).mean()
         df['sd'] = df['value'].rolling(window).std()
         df["value_de"] = 0.5 * (np.tanh(((df["value"] - df['ma']) / df["sd"])) + 1)
@@ -103,26 +103,26 @@ class Model:
         return df
 
     @staticmethod
-    def _standardize_maDiff(df: pd.DataFrame, window: int):
+    def _standardize_maDiff(df: pd.DataFrame, window: int, threshold: float):
         df['ma'] = df['value'].rolling(window).mean()
         df['value_de'] = (df['value'] / df['ma']) - 1.0
 
         return df
 
     @staticmethod
-    def _standardize_roc(df: pd.DataFrame, window: int):
+    def _standardize_roc(df: pd.DataFrame, window: int, threshold: float):
         df['value_de'] = df['value'].pct_change(periods=window)
 
         return df
 
     @staticmethod
-    def _standardize_rsi(df: pd.DataFrame, window: int):
+    def _standardize_rsi(df: pd.DataFrame, window: int, threshold: float):
         df['value_de'] = ta.rsi(df['value'], length=window)
 
         return df
 
     @staticmethod
-    def _standardize_minMax(df: pd.DataFrame, window: int):
+    def _standardize_minMax(df: pd.DataFrame, window: int, threshold: float):
         df['min'] = df['value'].rolling(window).min()
         df['max'] = df['value'].rolling(window).max()
         df['value_de'] = (df['value'] - df['min']) / (df['max'] - df['min'])
@@ -130,7 +130,9 @@ class Model:
         return df
 
     @staticmethod
-    def _standardize_percentile(df: pd.DataFrame, window: int):
+    def _standardize_percentile(df: pd.DataFrame, window: int, threshold: float):
+        df['percentile_high'] = df['value'].rolling(window).quantile(1 - threshold)
+        df['percentile_low'] = df['value'].rolling(window).quantile(threshold)
         df["value_de"] = df['value'].rolling(window=window).apply(lambda x: percentileofscore(x, x.iloc[-1]))
 
         return df
@@ -229,4 +231,72 @@ class Model:
                 df['pos'] = np.where(
                     (df['value_de'] > (100 - threshold)), -1, np.where(df['value_de'] < threshold, 0, 0)
                 )
+        return df['pos']
+
+    @staticmethod
+    def _cal_pos_zeroOne(df: pd.DataFrame, threshold: float, long_or_short: str, direction: str):
+        if direction == 'momentum':
+            if long_or_short == 'long short':
+                df['pos'] = np.where(
+                    df['value_de'] >= (1 - threshold), 1, np.where(df['value_de'] <= threshold, -1, 0)
+                )
+            elif long_or_short == 'long':
+                df['pos'] = np.where(
+                    df['value_de'] > (1 - threshold), 1, np.where(df['value_de'] <= threshold, 0, 0)
+                )
+            elif long_or_short == 'short':
+                df['pos'] = np.where(
+                    df['value_de'] >= (1 - threshold), 0, np.where(df['value_de'] <= threshold, -1, 0)
+                )
+        else:
+            if long_or_short == 'long short':
+                df['pos'] = np.where(
+                    df['value_de'] >= (1 - threshold), -1, np.where(df['value_de'] <= threshold, 1, 0)
+                )
+            elif long_or_short == 'long':
+                df['pos'] = np.where(
+                    df['value_de'] >= (1 - threshold), 0, np.where(df['value_de'] <= threshold, 1, 0)
+                )
+            elif long_or_short == 'short':
+                df['pos'] = np.where(
+                    df['value_de'] >= (1 - threshold), -1, np.where(df['value_de'] <= threshold, 0, 0)
+                )
+
+        return df['pos']
+
+    @staticmethod
+    def _cal_pos_percentile(df: pd.DataFrame, threshold: float, long_or_short: str, direction: str):
+        if direction == 'momentum':
+            if long_or_short == 'long short':
+                df['pos'] = np.where(
+                    df['value'] >= df['percentile_high'], 1,
+                    np.where(df['value'] <= df['percentile_low'], -1, 0)
+                )
+            elif long_or_short == 'long':
+                df['pos'] = np.where(
+                    df['value'] >= df['percentile_high'], 1,
+                    np.where(df['value'] <= df['percentile_low'], 0, 0)
+                )
+            elif long_or_short == 'short':
+                df['pos'] = np.where(
+                    df['value'] >= df['percentile_high'], 0,
+                    np.where(df['value'] <= df['percentile_low'], -1, 0)
+                )
+        else:
+            if long_or_short == 'long short':
+                df['pos'] = np.where(
+                    df['value'] >= df['percentile_high'], -1,
+                    np.where(df['value'] <= df['percentile_low'], 1, 0)
+                )
+            elif long_or_short == 'long':
+                df['pos'] = np.where(
+                    df['value'] >= df['percentile_high'], 0,
+                    np.where(df['value'] <= df['percentile_low'], 1, 0)
+                )
+            elif long_or_short == 'short':
+                df['pos'] = np.where(
+                    df['value'] >= df['percentile_high'], -1,
+                    np.where(df['value'] <= df['percentile_low'], 0, 0)
+                )
+
         return df['pos']
