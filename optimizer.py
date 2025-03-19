@@ -150,9 +150,9 @@ class FactorStrategyOptimizer(Optimizer):
         temp_df = copy.deepcopy(self.data)
 
         for window in window_list:
-            temp_df = Model().standardize_metric(temp_df, window, model)
             try:
                 for threshold in threshold_list:
+                    temp_df = Model().standardize_metric(temp_df, window, model, threshold)
                     temp_df["pos"] = Model().cal_pos(df=temp_df,
                                                      model=model,
                                                      threshold=threshold,
@@ -211,7 +211,7 @@ class FactorStrategyOptimizer(Optimizer):
 
                 print(f'[PLOTTING], sharpe: {sharpe}, window: {window}, threshold: {threshold}, model: {model}')
 
-                temp_df = Model().standardize_metric(temp_df, window, model)
+                temp_df = Model().standardize_metric(temp_df, window, model, threshold)
 
                 temp_df["pos"] = Model().cal_pos(df=temp_df,
                                                  model=model,
