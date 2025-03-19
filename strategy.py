@@ -27,8 +27,9 @@ from model import Model
 from metric import MetricFetcher, apply_transformation, apply_operator
 from parameter import StrategyPerformance, ExecutionDetail, StrategyDetail, MetricDetail
 from optimizer import FactorStrategyOptimizer
+from transformer import Transformer
 
-from plot import FactorStrategyPlotter
+from plot import FactorStrategyPlotter, MetricPlotter
 import plotly.graph_objects as go
 
 logger = logging.getLogger(__name__)
@@ -80,11 +81,15 @@ class Strategy:
         metric1 = MetricDetail(metric=kwargs.get("metric1"),
                                asset_input=kwargs.get("asset_input1"),
                                asset_output=kwargs.get("asset_output1"),
+                               transformType=kwargs.get("transformType1", "raw"),
+                               transformPeriod=kwargs.get("transformPeriod1"),
                                operator=kwargs.get("operator"))
 
         metric2 = MetricDetail(metric=kwargs.get("metric2"),
                                asset_input=kwargs.get("asset_input2", metric1.asset_input),
                                asset_output=kwargs.get("asset_output2", metric1.asset_output),
+                               transformType=kwargs.get("transformType2", metric1.transformType),
+                               transformPeriod=kwargs.get("transformPeriod2", metric1.transformPeriod),
                                operator=kwargs.get("operator"))
 
         self.metric_info = {"metric1": metric1,
@@ -92,7 +97,9 @@ class Strategy:
 
         self.resolution = kwargs.get("resolution", "24h")
 
-        self.execution_info = ExecutionDetail(resolution=kwargs.get("resolution", "24h"))
+        self.execution_info = ExecutionDetail(resolution=kwargs.get("resolution", "24h"),
+                                              delay_time=kwargs.get("delay_time", 0))
+
         self.performance_info = StrategyPerformance()
         self.final_df = pd.DataFrame()
 
@@ -212,6 +219,20 @@ class Strategy:
         # Display the plot
         fig.show()
 
+    def plot_metric(self, since: int, until: int):
+        # Data preparation
+        if not self.data:
+            data: pd.DataFrame = self.fetch_raw_data(since=since, until=until)
+        else:
+            data: pd.DataFrame = copy.deepcopy(self.data)
+
+        # Data processing pipeline
+        data = self._preprocess_data(data)  # Preprocess raw data
+
+        fig = MetricPlotter(**self.__dict__, df=data)
+
+        fig.plot()
+
     def _fetch_single_coin_raw_data(
             self,
             metric_obj: MetricDetail,
@@ -319,8 +340,13 @@ class Strategy:
         return self.model.standardize_metric(
             df=df,  # Input DataFrame
             window=self.strategy_info.window,  # Look-back window
-            model=self.strategy_info.model  # Model type (e.g., 'bband', 'percentile')
+            model=self.strategy_info.model,  # Model type (e.g., 'bband', 'percentile')
+            threshold=self.strategy_info.threshold
         )
+
+    @staticmethod
+    def data_preprocessing(df: pd.DataFrame, metric: MetricDetail):
+        return Transformer().transform(df, metric.transformType, metric.transformPeriod)
 
 
 class FactorStrategy(Strategy):
@@ -498,6 +524,7 @@ class FactorStrategy(Strategy):
         # Create deep copies of input data
         for metric_name, metric_obj in self.metric_info.items():
             temp_dict[metric_name] = copy.deepcopy(data[metric_name])
+            temp_dict[metric_name] = self.data_preprocessing(temp_dict[metric_name], metric_obj)
 
         # Apply operator between metric1 and metric2
         return apply_operator(
@@ -560,7 +587,6 @@ class FactorStrategy(Strategy):
             # Calculate positions and PnL
             data["pos"] = self.__cal_pos(data)  # Generate position signals
             data = cal_pnl(data)  # Calculate PnL
-
             # Perform backtesting analysis
             self.performance_info, self.final_df = backtesting(
                 window=self.strategy_info.window,           # Look-back window
@@ -584,30 +610,41 @@ if __name__ == "__main__":
     pd.set_option("display.max_columns", None)
     pd.set_option("display.width", 1000)
 
-    heatmap_para = {"window": (5, 200, 10),
-                    "threshold": (0, 2.1, 0.1)}
+    heatmap_para = {"window": (5, 375, 10),
+                    "threshold": (0, 0.5, 0.025)}
 
     # Initialize the FactorStrategy class
     strategy = FactorStrategy(
-        model="bband",
-        metric1="addresses/active_count",
-        # metric2="addresses/active_count",
-        # operator="A / B",
-        direction="momentum",
+        strategy_code="test",
+        model="min_max",
+        # metric1="transactions/transfers_volume_sum",
+        metric1="addresses/supply_balance_10k_100k",
+        metric2="addresses/accumulation_balance",
+        operator="A / B",
+        transformType1="raw",
+        transformPeriod1=50,
+        direction="reversion",
         resolution="24h",
-        asset_input1="ETH",
-        asset_output1="ETH",
+        asset_input="BTC",
+        asset_output="BTC",
+        currency="NATIVE",
+        asset_input1="BTC",
         long_short="long short",
-        window=50,
-        threshold=1,
-        # heatmap_para=heatmap_para
+        window=275,
+        threshold=0.4,
+        data_source="glassnode",
+        metric_type="close",
     )
-    start_date = "2020-01-01"
+    start_date = "2022-01-01"
     end_date = "2024-01-01"
-    start_timestamp = int(pd.Timestamp(start_date).timestamp())
-    end_timestamp = int(pd.Timestamp(end_date).timestamp())
+    # start_timestamp = int(pd.Timestamp(start_date).timestamp())
+    # end_timestamp = int(pd.Timestamp(end_date).timestamp())
 
-    strategy.batch_optimize(start_timestamp, end_timestamp)
+    # Fetch strategy data
+    start_timestamp = 1644768000 # Start timestamp
+    end_timestamp = 1737926400 - 86400 # End timestamp
+
+    strategy.backtest(start_timestamp, end_timestamp)
     strategy.plot_equity_curve()
 
 
