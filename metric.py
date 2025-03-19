@@ -31,6 +31,8 @@ class MetricFetcher:
         self.resolution: str = kwargs.get("resolution")
         self.currency: str = kwargs.get("currency", "NATIVE")
 
+        self.delay_time: int = kwargs.get("delay_time", 0)
+
     def fetch_metric(
         self, metric: str
     ) -> Any:
@@ -116,13 +118,38 @@ class MetricFetcher:
                 f"Fetching price for asset_output {self.asset_output} with resolution {fetch_resolution}"
             )
 
-            df = GlassnodeDataFeed().fetch_data_by_metric(
-                metric=price_metric,
-                asset=self.asset_output,
-                since=self.since,
-                until=self.until,
-                resolution=fetch_resolution,
-            )
+            if (self.delay_time != 0) and (self.delay_time is not None):
+                if self.delay_time % 10 == 0:
+                    try:
+                        delay_resolution = "10m"  # if self.data_source == "glassnode" else "5m"
+                        df = GlassnodeDataFeed().fetch_data_by_metric(
+                            metric=price_metric,
+                            asset=self.asset_output,
+                            since=self.since,
+                            until=self.until,
+                            resolution=delay_resolution,
+                        )
+                        df = group_by_delay_period(
+                            df=df,
+                            mode="last",
+                            resolution=self.resolution,
+                            delay_time=self.delay_time,
+                            data_source="glassnode",
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Error fetching lagging price for asset_output {self.asset_output}: {e}"
+                        )
+                else:
+                    raise ValueError(f"Delay time must be multiple of 10: {self.delay_time}")
+            else:
+                df = GlassnodeDataFeed().fetch_data_by_metric(
+                    metric=price_metric,
+                    asset=self.asset_output,
+                    since=self.since,
+                    until=self.until,
+                    resolution=fetch_resolution,
+                )
 
             return df
 
@@ -151,7 +178,7 @@ def apply_operator(
         if data2.empty:
             return data1
         df_value = pd.merge(data1, data2, how="inner", on="t")
-        print(df_value)
+
         if operator in ["A + B", "Addition"]:
             df_value["value"] = df_value["value_x"] + df_value["value_y"]
         elif operator in ["A - B", "Subtraction"]:
@@ -201,6 +228,67 @@ def apply_transformation(
         return pd.DataFrame()
 
 
+def group_by_delay_period(
+    df,
+    mode="last",
+    resolution="24h",
+    front_run=False,
+    delay_time=10,
+    data_source="glassnode",
+):
+    """
+    Group data by delay periods for delay mode processing.
+
+    Args:
+        df (pd.DataFrame): The dataframe with 't' and 'v' columns.
+        mode (str): The aggregation mode.
+        resolution (str): The original resolution.
+        front_run (bool): Whether front run is enabled.
+        delay_time (int): The delay time in minutes.
+        data_source (str): The data source.
+
+    Returns:
+        pd.DataFrame: The grouped dataframe.
+    """
+    # Ensure the 't' column is in datetime format
+    df["t"] = pd.to_datetime(df["t"])
+    df.set_index("t", inplace=True)
+
+    # Define time offsets and expected group sizes
+    if data_source == "glassnode":
+        time_offsets = {
+            "1d": pd.Timedelta(hours=1 if front_run else 0)
+            - pd.Timedelta(minutes=delay_time),
+            "24h": pd.Timedelta(hours=1 if front_run else 0)
+            - pd.Timedelta(minutes=delay_time),
+            "1h": pd.Timedelta(minutes=10 if front_run else 0)
+            - pd.Timedelta(minutes=delay_time),
+        }
+        group_sizes = {"1d": 24 * 6, "24h": 24 * 6, "1h": 6}
+    else:
+        logger.error(f"Unsupported data source: {data_source}")
+        return pd.DataFrame()
+
+    try:
+        offset = time_offsets[resolution]
+        expected_size = group_sizes[resolution]
+    except KeyError:
+        logger.error(f"Unsupported resolution: {resolution}")
+        return pd.DataFrame()
+
+    df["temp"] = (df.index + offset).floor(resolution)
+    grouped_df = (
+        (
+            df.groupby("temp")
+            .filter(lambda x: len(x) == expected_size)
+            .groupby("temp")
+            .agg({"v": mode})
+        )
+        .reset_index()
+        .rename(columns={"temp": "t"})
+    )
+
+    return grouped_df
 if __name__ == "__main__":
     test = MetricFetcher(
         asset_input="BTC",
@@ -214,3 +302,4 @@ if __name__ == "__main__":
         data_source="laevitas",
     )
     df = test.fetch_metric("Historical_Total_Volume_Open_Value_Bybit")
+
