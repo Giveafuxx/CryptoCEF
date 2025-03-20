@@ -19,7 +19,8 @@ class Model:
             "rsi": self._standardize_rsi,
             "min_max": self._standardize_minMax,
             "percentile": self._standardize_percentile,
-            "raw": self._standardize_raw
+            "raw": self._standardize_raw,
+            "2ma_cross": self._standardize_maCross
         }
         self.calculation_model = {
             "bband": self._cal_pos_zScore,
@@ -32,6 +33,7 @@ class Model:
             "min_max": self._cal_pos_zeroOne,
             "percentile": self._cal_pos_percentile,
             "raw": self._cal_pos_zScore,
+            "2ma_cross": self._cal_pos_maCross
         }
 
     def get_model_list(self):
@@ -49,10 +51,9 @@ class Model:
             logger.error(f"Error in cal_pos: {e}")
             raise
 
-    def cal_pos(self, df: pd.DataFrame, model: str, threshold: float, long_or_short: str, direction: str):
+    def cal_pos(self, df: pd.DataFrame, model: str, threshold, long_or_short: str, direction: str):
         long_or_short = long_or_short.lower()
         direction = direction.lower()
-
         if model not in self.calculation_model:
             raise ValueError(f"Model not found: {model}, exiting...")
 
@@ -106,6 +107,15 @@ class Model:
     def _standardize_maDiff(df: pd.DataFrame, window: int, threshold: float):
         df['ma'] = df['value'].rolling(window).mean()
         df['value_de'] = (df['value'] / df['ma']) - 1.0
+
+        return df
+
+    def _standardize_maCross(self, df: pd.DataFrame, window: int, threshold):
+        window = int(window)
+        threshold = int(threshold)
+        df['ma1'] = df['value'].rolling(window).mean()
+        df['ma2'] = df['value'].rolling(threshold).mean()
+        df['value_de'] = df['ma1'] - df["ma2"]
 
         return df
 
@@ -300,3 +310,36 @@ class Model:
                 )
 
         return df['pos']
+
+    @staticmethod
+    def _cal_pos_maCross(df: pd.DataFrame, threshold, long_or_short: str, direction: str):
+        threshold = int(threshold)
+        if direction == 'momentum':
+            if long_or_short == 'long short':
+                df['pos'] = np.where(
+                    df['value_de'] > 0, 1, np.where(df['value_de'] < 0, -1, 0)
+                )
+            elif long_or_short == 'long':
+                df['pos'] = np.where(
+                    df['value_de'] > 0, 1, np.where(df['value_de'] < 0, 0, 0)
+                )
+            elif long_or_short == 'short':
+                df['pos'] = np.where(
+                    df['value_de'] > 0, 0, np.where(df['value_de'] < 0, -1, 0)
+                )
+        else:
+            if long_or_short == 'long short':
+                df['pos'] = np.where(
+                    df['value_de'] > 0, -1, np.where(df['value_de'] < 0, 1, 0)
+                )
+            elif long_or_short == 'long':
+                df['pos'] = np.where(
+                    df['value_de'] > 0, 0, np.where(df['value_de'] < 0, 1, 0)
+                )
+            elif long_or_short == 'short':
+                df['pos'] = np.where(
+                    df['value_de'] > 0, -1, np.where(df['value_de'] < 0, 0, 0)
+                )
+        return df['pos']
+
+
