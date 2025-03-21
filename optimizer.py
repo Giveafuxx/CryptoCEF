@@ -196,7 +196,7 @@ class FactorStrategyOptimizer(Optimizer):
             for i, row in result_df.iterrows():
                 if i > 49: break
                 print(
-                    f'{i + 1}:  Sharpe: {row["sharpe"]} | Sortino: {round(row["sortino"], 3)} | Calmar: {row["calmar"]} | MDD: {row["mdd"]} | Window: {row["window"]} | Threshold: {row["threshold"]} | Trades: {row["trade"]} ')
+                    f'{i + 1}:  Sharpe: {row["sharpe"]} | Sortino: {round(row["sortino"], 3)} | Calmar: {row["calmar"]} | Annualized Return: {row["annual_return"]} | MDD: {row["mdd"]} | Window: {row["window"]} | Threshold: {row["threshold"]} | Trades: {row["trade"]} ')
 
             print(
                 f"******************** Top 50 Sharpe Equity Curve with model:    {model} | {self.strategy_info.direction}  ***************************")
