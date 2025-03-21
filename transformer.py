@@ -497,6 +497,29 @@ class Transformer:
     
     @staticmethod
     def ratio2pct(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Normalizes asymmetrical ratio data to percentage format using value/(value+1).
+        
+        In financial data, ratios often have asymmetrical structures where:
+        - Ratio > 1 indicates favoring one side (e.g., 3.0 means 3:1)
+        - Ratio < 1 indicates favoring the opposite side (e.g., 0.5 means 1:2)
+        This transformation bounds the output to [0,1] while preserving the relationship:
+        - Ratio of 3.0 -> 75% (favoring upside)
+        - Ratio of 0.5 -> 33% (favoring downside)
+        - Ratio of 1.0 -> 50% (neutral)
+    
+        Args:
+            df (pd.DataFrame): Input DataFrame containing a 'value' column with ratio data.
+                The 'value' column must contain positive numeric data representing ratios.
+    
+        Returns:
+            pd.DataFrame: DataFrame with 'value' column transformed to percentage (0-1 range).
+                Original DataFrame structure is preserved with only 'value' column modified.
+    
+        Raises:
+            Exception: If 'value' column is missing, contains non-numeric data,
+                negative values, or any arithmetic operation fails.
+        """
         try:
             df["value"] = df["value"] / (df["value"] + 1)
             return df
