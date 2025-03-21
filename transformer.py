@@ -44,6 +44,8 @@ class Transformer:
             return self.fft(df, period)
         elif method == "cumsum":
             return self.cumsum(df)
+        elif method == "ratio2pct":
+            return self.ratio2pct(df)
         else:
             return self.raw(df)
 
@@ -492,6 +494,16 @@ class Transformer:
             logger.error("Error in transforming data using 'cumsum' function.")
             logger.error(e)
             raise
+    
+    @staticmethod
+    def ratio2pct(df: pd.DataFrame) -> pd.DataFrame:
+        try:
+            df["value"] = df["value"] / (df["value"] + 1)
+            return df
+        except Exception as e:
+            logger.error("Error in transforming data using 'ratio2pct' function.")
+            logger.error(e)
+            raise
         
     @staticmethod
     def absolute(df: pd.DataFrame) -> pd.DataFrame:
@@ -627,7 +639,7 @@ class FastFourierTransformer:
                 normalized[i] = 0
 
         return normalized
-
+    
     def _validate_input(self, df: pd.DataFrame):
         """Validate input data"""
         if not isinstance(df, pd.DataFrame):
