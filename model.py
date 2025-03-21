@@ -39,6 +39,12 @@ class Model:
     def get_model_list(self):
         return list(self.standardization_model.keys())
 
+    def __detect_raw_calculationType(self, df: pd.DataFrame):
+        if ((df["value_de"] >= 0) & (df["value_de"] <= 1)).all():
+            return self._cal_pos_zeroOne
+        else:
+            return self._cal_pos_zScore
+
     def standardize_metric(self, df: pd.DataFrame, window: int, model: str, threshold: float) -> pd.DataFrame:
         model = model.lower()
 
@@ -57,6 +63,9 @@ class Model:
         if model not in self.calculation_model:
             raise ValueError(f"Model not found: {model}, exiting...")
 
+        if model == "raw":
+            calculationModel = self.__detect_raw_calculationType(df)
+            return calculationModel(df, threshold, long_or_short, direction)
         try:
             return self.calculation_model[model](df, threshold, long_or_short, direction)
         except Exception as e:
