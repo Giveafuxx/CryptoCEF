@@ -170,7 +170,7 @@ class FactorStrategyOptimizer(Optimizer):
                         window,
                         threshold,
                         temp_df,
-                        self.resolution,
+                        self.strategy_info.resolution,
                     )
                     result = pd.Series(result.__dict__)
                     result_list.append(result)
