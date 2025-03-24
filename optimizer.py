@@ -230,7 +230,7 @@ class FactorStrategyOptimizer(Optimizer):
                     window,
                     threshold,
                     temp_df,
-                    self.resolution,
+                    self.strategy_info.resolution,
                 )
                 print(result)
                 fig = plot.FactorStrategyPlotter(
