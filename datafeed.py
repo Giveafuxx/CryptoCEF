@@ -4,6 +4,7 @@ import pandas as pd
 from io import StringIO  # Ensure StringIO is imported
 from datetime import datetime
 from config import *
+import pytz
 
 logger = logging.getLogger(__name__)
 
@@ -227,12 +228,20 @@ class SantimentDataFeed(DataFeed):
         timeseries_data = result.get('data', {}).get('getMetric', {}).get('timeseriesData', [])
 
         if not timeseries_data:
-            return pd.DataFrame(columns=['dt', 'v'])
+            return pd.DataFrame(columns=['t', 'v'])
 
         df = pd.DataFrame(timeseries_data)
-        df.columns = ['dt', 'v']
-        df = df.rename(columns={"dt": "t"})
+        df.columns = ['t', 'v']
         df["t"] = pd.to_datetime(df["t"])
+
+        # Format datetime based on resolution
+        if resolution == "1h":  # Daily data - format as date only (YYYY-MM-DD)
+            df['t'] = pd.to_datetime(df['t'].dt.strftime('%Y-%m-%d %H:%M:%S'))  # Remove timezone and time
+        else:  # Hourly or other resolutions - keep full datetime
+            pass  # Already has full datetime
+        if resolution == "24h":
+            df['t'] = df['t'].dt.date
+            
         return df
 
     def fetch_available_slugs(self, metric: str) -> List[str]:
