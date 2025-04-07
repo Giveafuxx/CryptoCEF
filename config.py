@@ -1,1 +1,2 @@
 GLASSNODE_APIKEY = "PendingForNewAPIkey"
+SANTIMENT_APIKEY = "PendingForNewAPIkey"
