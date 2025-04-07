@@ -2,6 +2,7 @@ import logging
 import requests
 import pandas as pd
 from io import StringIO  # Ensure StringIO is imported
+from datetime import datetime
 from config import *
 
 logger = logging.getLogger(__name__)
@@ -137,6 +138,142 @@ class GlassnodeDataFeed(DataFeed):
             logger.exception(f"Error parsing JSON response: {e}")
             raise
 
+class SantimentDataFeed(DataFeed):
+    """
+    Data feed class for Santiment API.
+    """
+    TOP_20_COINS = {
+        "bitcoin": "bitcoin",
+        "ethereum": "ethereum",
+        "binance-coin": "binancecoin",
+        "ripple": "xrp",
+        "cardano": "cardano",
+        "solana": "solana",
+        "polkadot": "polkadot",
+        "dogecoin": "dogecoin",
+        "shiba-inu": "shiba-inu",
+        "litecoin": "litecoin",
+        "uniswap": "uniswap",
+        "chainlink": "chainlink",
+        "polygon": "matic-network",
+        "avalanche": "avalanche",
+        "tron": "tron",
+        "stellar": "stellar",
+        "aave": "aave",
+        "vechain": "vechain",
+        "algorand": "algorand",
+        "cosmos": "cosmos"
+    }
+
+    def __init__(self) -> None:
+        super().__init__('santiment')
+        self.metrics_list = self.fetch_metric_list()
+
+        self.TOP_20_COINS_SYMBOLS = {
+            "BTC": "bitcoin",
+            "ETH": "ethereum",
+            "BNB": "binancecoin",
+            "XRP": "xrp",
+            "ADA": "cardano",
+            "SOL": "solana",
+            "DOT": "polkadot",
+            "DOGE": "dogecoin",
+            "SHIB": "shiba-inu",
+            "LTC": "litecoin",
+            "UNI": "uniswap",
+            "LINK": "chainlink",
+            "MATIC": "matic-network",
+            "AVAX": "avalanche",
+            "TRX": "tron",
+            "XLM": "stellar",
+            "AAVE": "aave",
+            "VET": "vechain",
+            "ALGO": "algorand",
+            "ATOM": "cosmos"
+        }
+
+    def fetch_data_by_metric(self, metric: str, asset: str, since: int, until: int, resolution: str) -> pd.DataFrame:
+        # convert timestamp (int) into "%Y-%m-%dT%H:%M:%SZ" (str). Example: 1672531200 -> "2023-01-01T00:00:00Z"
+        since_str = datetime.fromtimestamp(since).strftime("%Y-%m-%dT%H:%M:%SZ")
+        until_str = datetime.fromtimestamp(until).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        slug = self.TOP_20_COINS_SYMBOLS[asset]
+
+        BASE_URL = 'https://api.santiment.net/graphql'
+        API_KEY = SANTIMENT_APIKEY
+        HEADERS = {
+            'Authorization': f'Apikey {API_KEY}',
+            'Content-Type': 'application/json'
+        }
+
+        query = f'''
+        {{
+          getMetric(metric: "{metric}") {{
+            timeseriesData(
+              slug: "{slug}"
+              from: "{since_str}"
+              to: "{until_str}"
+              interval: "{resolution}"
+            ) {{
+              datetime
+              value
+            }}
+          }}
+        }}
+        '''
+
+        response = requests.post(BASE_URL, headers=HEADERS, json={'query': query})
+        result = response.json()
+        timeseries_data = result.get('data', {}).get('getMetric', {}).get('timeseriesData', [])
+
+        if not timeseries_data:
+            return pd.DataFrame(columns=['dt', 'v'])
+
+        df = pd.DataFrame(timeseries_data)
+        df.columns = ['dt', 'v']
+        df = df.rename(columns={"dt": "t"})
+        df["t"] = pd.to_datetime(df["t"])
+        return df
+
+    def fetch_available_slugs(self, metric: str) -> List[str]:
+        BASE_URL = 'https://api.santiment.net/graphql'
+        HEADERS = {
+            'Authorization': f'Apikey {self.API_KEY}',
+            'Content-Type': 'application/json'
+        }
+
+        query = f'''
+        {{
+          getMetric(metric: "{metric}") {{
+            metadata {{
+              availableProjects {{ slug }}
+            }}
+          }}
+        }}
+        '''
+
+        response = requests.post(BASE_URL, headers=HEADERS, json={'query': query})
+        result = response.json()
+
+        try:
+            all_slugs = [item['slug'] for item in
+                         result.get('data', {}).get('getMetric', {}).get('metadata', {}).get('availableProjects', [])]
+            return [slug for slug in all_slugs if slug in self.TOP_20_COINS.values()]
+        except KeyError:
+            return []
+
+    def fetch_metric_list(self) -> List[str]:
+        BASE_URL = 'https://api.santiment.net/graphql'
+        HEADERS = {
+            'Authorization': f'Apikey {self.API_KEY}',
+            'Content-Type': 'application/json'
+        }
+
+        query = '{ getAvailableMetrics }'
+        response = requests.post(BASE_URL, headers=HEADERS, json={'query': query})
+        result = response.json()
+
+        return result.get("data", {}).get("getAvailableMetrics", [])
 
 if __name__ == "__main__":
     """
