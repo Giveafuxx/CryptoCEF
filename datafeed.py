@@ -195,8 +195,8 @@ class SantimentDataFeed(DataFeed):
 
     def fetch_data_by_metric(self, metric: str, asset: str, since: int, until: int, resolution: str) -> pd.DataFrame:
         # convert timestamp (int) into "%Y-%m-%dT%H:%M:%SZ" (str). Example: 1672531200 -> "2023-01-01T00:00:00Z"
-        since_str = datetime.fromtimestamp(since).strftime("%Y-%m-%dT%H:%M:%SZ")
-        until_str = datetime.fromtimestamp(until).strftime("%Y-%m-%dT%H:%M:%SZ")
+        since_str = datetime.fromtimestamp(since, tz=pytz.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        until_str = datetime.fromtimestamp(until, tz=pytz.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         slug = self.TOP_20_COINS_SYMBOLS[asset]
 
