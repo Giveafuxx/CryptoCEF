@@ -144,6 +144,7 @@ class SantimentDataFeed(DataFeed):
     """
     Data feed class for Santiment API.
     """
+
     TOP_20_COINS = {
         "bitcoin": "bitcoin",
         "ethereum": "ethereum",
@@ -194,7 +195,7 @@ class SantimentDataFeed(DataFeed):
             "ATOM": "cosmos"
         }
 
-    def fetch_data_by_metric(self, metric: str, asset: str, since: int, until: int, resolution: str) -> pd.DataFrame:
+    def fetch_data_by_metric(self, metric: str, asset: str, since: int, until: int, resolution: str, currency:str = "NATIVE") -> pd.DataFrame:
         # convert timestamp (int) into "%Y-%m-%dT%H:%M:%SZ" (str). Example: 1672531200 -> "2023-01-01T00:00:00Z"
         since_str = datetime.fromtimestamp(since, tz=pytz.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         until_str = datetime.fromtimestamp(until, tz=pytz.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -202,7 +203,7 @@ class SantimentDataFeed(DataFeed):
         slug = self.TOP_20_COINS_SYMBOLS[asset]
 
         BASE_URL = 'https://api.santiment.net/graphql'
-        API_KEY = SANTIMENT_APIKEY
+        API_KEY = self.api_key
         HEADERS = {
             'Authorization': f'Apikey {API_KEY}',
             'Content-Type': 'application/json'
@@ -241,14 +242,14 @@ class SantimentDataFeed(DataFeed):
         else:  # Hourly or other resolutions - keep full datetime
             pass  # Already has full datetime
         if resolution == "24h":
-            df['t'] = df['t'].dt.date
-            
+            df['t'] = pd.to_datetime(df['t'].dt.date)
+
         return df
 
     def fetch_available_slugs(self, metric: str) -> List[str]:
         BASE_URL = 'https://api.santiment.net/graphql'
         HEADERS = {
-            'Authorization': f'Apikey {self.API_KEY}',
+            'Authorization': f'Apikey {self.api_key}',
             'Content-Type': 'application/json'
         }
 
@@ -275,7 +276,7 @@ class SantimentDataFeed(DataFeed):
     def fetch_metric_list(self) -> List[str]:
         BASE_URL = 'https://api.santiment.net/graphql'
         HEADERS = {
-            'Authorization': f'Apikey {self.API_KEY}',
+            'Authorization': f'Apikey {self.api_key}',
             'Content-Type': 'application/json'
         }
 
