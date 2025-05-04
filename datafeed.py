@@ -194,7 +194,50 @@ class SantimentDataFeed(DataFeed):
             "ALGO": "algorand",
             "ATOM": "cosmos"
         }
+        
+    @staticmethod
+    def _get_metric_query_by_asset(metric, slug, since_str, until_str, resolution):
+        return f'''
+        {{
+          getMetric(metric: "{metric}") {{
+            timeseriesData(
+              slug: "{slug}"
+              from: "{since_str}"
+              to: "{until_str}"
+              interval: "{resolution}"
+              includeIncompleteData: false
+            ) {{
+              datetime
+              value
+            }}
+          }}
+        }}
+        '''
 
+    @staticmethod
+    def _get_metric_query_by_arbitrary_search_term(metric_raw, slug, since_str, until_str, resolution):
+        # refer to https://academy.santiment.net/metrics/social-volume/#definition for the text requirement
+        metric_raw = metric_raw[4:]  # remove "AST_" prefix
+        metric = metric_raw.split("#", 1)[0]
+        text = metric_raw.split("#", 1)[1]
+
+        return f'''
+        {{
+          getMetric(metric: "{metric}") {{
+            timeseriesData(
+              selector: {{ text: "{text}" }}
+              from: "{since_str}"
+              to: "{until_str}"
+              interval: "{resolution}"
+              includeIncompleteData: false
+            ) {{
+              datetime
+              value
+            }}
+          }}
+        }}
+        '''
+        
     def fetch_data_by_metric(self, metric: str, asset: str, since: int, until: int, resolution: str, currency:str = "NATIVE") -> pd.DataFrame:
         # convert timestamp (int) into "%Y-%m-%dT%H:%M:%SZ" (str). Example: 1672531200 -> "2023-01-01T00:00:00Z"
         since_str = datetime.fromtimestamp(since, tz=pytz.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -209,21 +252,10 @@ class SantimentDataFeed(DataFeed):
             'Content-Type': 'application/json'
         }
 
-        query = f'''
-        {{
-          getMetric(metric: "{metric}") {{
-            timeseriesData(
-              slug: "{slug}"
-              from: "{since_str}"
-              to: "{until_str}"
-              interval: "{resolution}"
-            ) {{
-              datetime
-              value
-            }}
-          }}
-        }}
-        '''
+        if metric[:4] == "AST_":
+            query = self._get_metric_query_by_arbitrary_search_term(metric, slug, since_str, until_str, resolution)
+        else:
+            query = self._get_metric_query_by_asset(metric, slug, since_str, until_str, resolution)
 
         response = requests.post(BASE_URL, headers=HEADERS, json={'query': query})
         result = response.json()
