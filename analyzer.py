@@ -1,6 +1,12 @@
 import numpy as np
 import pandas as pd
 from statsmodels.regression.rolling import RollingOLS
+from dataclasses import dataclass
+from typing import Tuple, List
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 class PerformanceAnalyzer:
@@ -275,6 +281,233 @@ class PerformanceAnalyzer:
             daily_returns = temp_df.resample("D").apply(
                 lambda x: np.prod(1 + x["pnl"]) - 1
             )
+
+
+class DrawdownAnalyzer:
+    """Analyzer for computing and analyzing strategy drawdowns"""
+
+    def __init__(self, df: pd.DataFrame):
+        """
+        Initialize DrawdownAnalyzer with PnL data
+
+        Parameters:
+        df: DataFrame with 'pnl' column and datetime index
+        """
+        if not isinstance(df, pd.DataFrame):
+            raise TypeError("Input must be a pandas DataFrame")
+
+        if 'pnl' not in df.columns:
+            raise ValueError("DataFrame must contain 'pnl' column")
+
+        self.df = df
+        self.cumulative = self.df['pnl'].cumsum()
+        self._calculate_drawdown_series()
+
+    def _calculate_drawdown_series(self) -> None:
+        """Calculate running drawdown series"""
+        rolling_max = self.cumulative.expanding().max()
+        self.drawdown_series = (self.cumulative - rolling_max)
+
+    def get_max_drawdown(self) -> float:
+        """Return maximum drawdown value"""
+        return self.drawdown_series.min()
+
+    def get_current_drawdown(self) -> float:
+        """Return current drawdown value"""
+        return self.drawdown_series.iloc[-1]
+
+    def get_drawdown_periods(self, threshold: float = None) -> List[DrawdownPeriod]:
+        """
+        Get list of drawdown periods
+
+        Parameters:
+        threshold: Optional minimum drawdown to consider
+
+        Returns:
+        List of DrawdownPeriod objects
+        """
+        periods = []
+        in_drawdown = False
+        peak_idx = None
+
+        for i in range(len(self.cumulative)):
+            if not in_drawdown:
+                if self.drawdown_series.iloc[i] < 0:
+                    in_drawdown = True
+                    peak_idx = i - 1
+                    valley_idx = i
+            else:
+                if self.drawdown_series.iloc[i] < self.drawdown_series.iloc[valley_idx]:
+                    valley_idx = i
+                elif self.cumulative.iloc[i] >= self.cumulative.iloc[peak_idx]:
+                    # Drawdown period complete
+                    depth = self.drawdown_series.iloc[valley_idx]
+
+                    # Skip if doesn't meet threshold
+                    if threshold is None or depth <= threshold:
+                        period = DrawdownPeriod(
+                            start_date=self.cumulative.index[peak_idx],
+                            end_date=self.cumulative.index[valley_idx],
+                            recovery_date=self.cumulative.index[i],
+                            depth=depth,
+                            duration_total=(i - peak_idx),
+                            duration_drawdown=(valley_idx - peak_idx),
+                            duration_recovery=(i - valley_idx)
+                        )
+                        periods.append(period)
+
+                    in_drawdown = False
+
+        return periods
+
+    def get_drawdown_stats(self) -> dict:
+        """
+        Calculate comprehensive drawdown statistics
+
+        Returns:
+        Dictionary with drawdown statistics
+        """
+        periods = self.get_drawdown_periods()
+
+        if not periods:
+            return {
+                'drawdown': {"avg": 0,
+                             "sd": 0,
+                             "max": 0},
+                'duration': {"avg": 0,
+                             "sd": 0,
+                             "max": 0},
+                'recovery': {"avg": 0,
+                             "sd": 0,
+                             "max": 0},
+                'num_drawdowns': 0
+            }
+
+        drawdown = [p.depth for p in periods]
+        duration = [p.duration_total for p in periods]
+        recovery = [p.duration_recovery for p in periods]
+
+        duration30d = [p.duration_total for p in periods if p.duration_total > 30]
+        drawdown30d = [p.depth for p in periods if p.duration_total > 30]
+        return {
+            'drawdown': {"avg": np.mean(drawdown),
+                         "sd": np.std(drawdown),
+                         "max": self.get_max_drawdown()},
+            'duration': {"avg": np.mean(duration),
+                         "sd": np.std(duration),
+                         "max": np.max(duration)},
+            'recovery': {"avg": np.mean(recovery),
+                         "sd": np.std(recovery),
+                         "max": np.max(recovery)},
+            'num_drawdowns': len(periods),
+            'num_drawdown30': len(duration30d),
+            'avg_drawdown30': np.mean(drawdown30d),
+            'avg_duration30': np.mean(duration30d)
+        }
+
+    def plot_drawdowns(self, min_depth: float = -0.05, figsize=(15, 10)):
+        """
+        Create a comprehensive drawdown analysis visualization dashboard
+
+        Parameters:
+        min_depth: minimum drawdown depth to highlight (default: -0.05)
+        figsize: figure size for the entire dashboard (default: (15, 10))
+        """
+        try:
+            import matplotlib.pyplot as plt
+            import seaborn as sns
+
+            periods = self.get_drawdown_periods()
+            drawdown_depths = [p.depth for p in periods]
+            drawdown_durations = [p.duration_total for p in periods]
+            recovery_durations = [p.duration_recovery for p in periods]
+
+            # Create subplot grid
+            fig = plt.figure(figsize=figsize)
+            gs = fig.add_gridspec(3, 2)
+
+            # 1. Main Drawdown Timeline (larger plot)
+            ax1 = fig.add_subplot(gs[0, :])
+            ax1.plot(self.drawdown_series, color='gray', alpha=0.5, label='Drawdown')
+
+            # Highlight major drawdowns
+            for period in periods:
+                if period.depth <= min_depth:
+                    ax1.axvspan(period.start_date, period.recovery_date,
+                                color='red', alpha=0.2)
+
+            ax1.grid(True)
+            ax1.set_title('Drawdown Timeline')
+            ax1.set_ylabel('Drawdown (%)')
+            ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: '{:.1%}'.format(y)))
+
+            # 2. Drawdown Depth Distribution
+            ax2 = fig.add_subplot(gs[1, 0])
+            sns.histplot(drawdown_depths, ax=ax2, kde=True)
+            ax2.set_title('Drawdown Depth Distribution')
+            ax2.set_xlabel('Drawdown Depth (%)')
+            ax2.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: '{:.1%}'.format(x)))
+
+            # 3. Duration Distribution
+            ax3 = fig.add_subplot(gs[1, 1])
+            sns.histplot(drawdown_durations, ax=ax3, kde=True)
+            ax3.set_title('Drawdown Duration Distribution')
+            ax3.set_xlabel('Duration (days)')
+
+            # 4. Recovery vs Depth Scatter
+            ax4 = fig.add_subplot(gs[2, 0])
+            sns.scatterplot(x=drawdown_depths, y=recovery_durations, ax=ax4)
+            ax4.set_title('Recovery Time vs Drawdown Depth')
+            ax4.set_xlabel('Drawdown Depth (%)')
+            ax4.set_ylabel('Recovery Duration (days)')
+            ax4.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: '{:.1%}'.format(x)))
+
+            # 5. Duration vs Depth Scatter
+            ax5 = fig.add_subplot(gs[2, 1])
+            sns.scatterplot(x=drawdown_depths, y=drawdown_durations, ax=ax5)
+            ax5.set_title('Drawdown Duration vs Depth')
+            ax5.set_xlabel('Drawdown Depth (%)')
+            ax5.set_ylabel('Drawdown Duration (days)')
+            ax5.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: '{:.1%}'.format(x)))
+
+            # Add stats annotations
+            stats = self.get_drawdown_stats()
+            stats_text = (
+                f"Total\n"
+                f"---------------------------------------\n"
+                f"# Drawdown: {stats['num_drawdowns']}\n"
+                f"Max Drawdown: {stats['drawdown']['max'] * 100:.2f}%\n"
+                f"Avg Drawdown: {stats['drawdown']['avg'] * 100:.2f}%\n"
+                f"Avg Duration: {stats['duration']['avg']:.1f} days\n"
+                f"Avg Recovery: {stats['recovery']['avg']:.1f} days\n\n"
+                f"> 30 days\n"
+                f"---------------------------------------\n"
+                f"# Drawdown: {stats['num_drawdown30']}\n"
+                f"Avg Drawdown: {stats['avg_drawdown30'] * 100:.2f}%\n"
+                f"Avg Duration: {stats['avg_duration30']:.1f} days\n"
+            )
+
+            # Position the stats text in the upper right corner of the main drawdown plot
+            ax3.text(
+                0.98, 0.1,  # x, y coordinates in axes coordinates
+                stats_text,
+                transform=ax3.transAxes,  # Use axes coordinates
+                verticalalignment='bottom',
+                horizontalalignment='right',
+                bbox=dict(
+                    facecolor='white',
+                    alpha=0.8,
+                    edgecolor='none',
+                    pad=5
+                ),
+                fontsize=9
+            )
+
+            plt.tight_layout()
+            plt.show()
+
+        except ImportError:
+            logger.warning("Matplotlib and seaborn are required for plotting")
 
             return daily_returns.reset_index()
 
