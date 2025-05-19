@@ -32,6 +32,8 @@ from transformer import Transformer
 from plot import FactorStrategyPlotter, MetricPlotter
 import plotly.graph_objects as go
 
+from analyzer import DrawdownAnalyzer
+
 logger = logging.getLogger(__name__)
 
 
@@ -603,6 +605,12 @@ class FactorStrategy(Strategy):
         except Exception as e:
             logger.error(f"Backtest failed: {e}")
             return pd.Series(), pd.DataFrame()
+
+    def analyze_drawdown(self):
+        analyzer = DrawdownAnalyzer(self.final_df)
+        stats = analyzer.get_drawdown_stats()
+        # Plot drawdowns
+        analyzer.plot_drawdowns()
 
 
 if __name__ == "__main__":
